@@ -437,7 +437,13 @@ GameManager.prototype.evaluateTopLeftStrategy = function(grid, gamePhase) {
     // Get weights from FactorWeights if available, otherwise use defaults
     var getWeight = function(factorName, defaultValue) {
       if (typeof FactorWeights !== 'undefined' && FactorWeights.get) {
-        return FactorWeights.get(factorName);
+        var weight = FactorWeights.get(factorName);
+        // Log weight usage for verification
+        if (typeof window.weightsDebug === 'undefined') {
+          window.weightsDebug = {};
+        }
+        window.weightsDebug[factorName] = weight;
+        return weight;
       }
       return defaultValue;
     };
@@ -500,6 +506,11 @@ GameManager.prototype.evaluateTopLeftStrategy = function(grid, gamePhase) {
     let dangers = this.evaluateTopLeftDangers(grid, maxTile);
     let dangerWeight = getWeight("dangerPenalties", 1.5);
     score -= dangers * dangerWeight;
+
+    // Update UI with current weights being used
+    if (typeof updateWeightStats === 'function') {
+      updateWeightStats();
+    }
     
   } catch (error) {
     return -Infinity;

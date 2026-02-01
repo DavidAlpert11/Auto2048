@@ -156,6 +156,14 @@
             <button id="export-weights" style="padding: 5px 10px; background: #d6cdc7; border: none; border-radius: 3px; cursor: pointer; font-size: 12px;">Export</button>
           </div>
         </div>
+
+        <!-- Real-time stats display -->
+        <div id="weights-stats" style="padding: 10px; background: rgba(0,200,0,0.1); border-left: 3px solid #00aa00; border-radius: 3px; margin-bottom: 15px; display: none;">
+          <div style="font-size: 11px; color: #333;">
+            <div style="margin-bottom: 5px;"><strong>✓ Weights Active</strong></div>
+            <div id="last-weight-update" style="font-size: 10px; color: #666;">Ready...</div>
+          </div>
+        </div>
         
         <div id="weights-container" style="display: grid; grid-template-columns: 1fr; gap: 12px;">
           <!-- Weight sliders will be inserted here by JavaScript -->
@@ -257,6 +265,18 @@
           });
         });
       }
+
+      // Real-time weight stats updater
+      window.updateWeightStats = function() {
+        var statsDiv = document.getElementById('weights-stats');
+        if (statsDiv && window.weightsDebug) {
+          statsDiv.style.display = 'block';
+          var timestamp = new Date().toLocaleTimeString();
+          var factorCount = Object.keys(window.weightsDebug).length;
+          document.getElementById('last-weight-update').textContent = 
+            '✓ ' + factorCount + ' factors updated (' + timestamp + ')';
+        }
+      };
 
       // Reset to defaults
       resetBtn.addEventListener("click", function() {
