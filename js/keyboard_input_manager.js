@@ -45,6 +45,7 @@ KeyboardInputManager.prototype.bindToggleMode = function () {
   var self = this;
   var toggleButton = document.getElementById("toggle-mode");
   var speedControl = document.getElementById("speed-control");
+  var weightsPanel = document.getElementById("weights-panel");
   var speedSlider = document.getElementById("ai-speed");
   var speedValue = document.getElementById("speed-value");
 
@@ -67,10 +68,12 @@ KeyboardInputManager.prototype.bindToggleMode = function () {
     if (self.isAutomaticMode) {
       toggleButton.textContent = "Switch to Manual";
       speedControl.style.display = "block"; // Show speed control
+      weightsPanel.style.display = "block"; // Show weights panel for real-time adjustment
       self.startAutomaticMove(); // Start automatic moves
     } else {
       toggleButton.textContent = "Switch to Automatic";
       speedControl.style.display = "none"; // Hide speed control
+      weightsPanel.style.display = "none"; // Hide weights panel
       self.stopAutomaticMove(); // Stop automatic moves
     }
   });

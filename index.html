@@ -243,7 +243,17 @@
             FactorWeights.set(factorName, value);
             
             // Update displayed value
-            document.querySelector('.weight-value[data-factor="' + factorName + '"]').textContent = parseFloat(value).toFixed(2);
+            var valueSpan = document.querySelector('.weight-value[data-factor="' + factorName + '"]');
+            valueSpan.textContent = parseFloat(value).toFixed(2);
+            
+            // Visual feedback - highlight the changed weight
+            var sliderContainer = this.closest('div');
+            if (sliderContainer) {
+              sliderContainer.style.background = 'rgba(255, 200, 0, 0.2)'; // Yellow highlight
+              setTimeout(function() {
+                sliderContainer.style.background = 'rgba(0,0,0,0.08)'; // Return to normal
+              }, 500);
+            }
           });
         });
       }
