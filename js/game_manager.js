@@ -665,12 +665,12 @@ GameManager.prototype.evaluateTopLeftDangers = function(grid, maxTile) {
         // Massive penalty for large tiles far from top-left
         let distance = x + y;
         if (distance > 1 && tile.value >= maxTile / 2) {
-          penalty += tile.value * distance * 75; // Increased from 50
+          penalty += Math.log2(tile.value) * distance * 75; // Logarithmic to prevent exponential growth
         }
         
         // Extra penalty for large tiles in bottom-right area
         if (x >= 2 && y >= 2 && tile.value >= 512) {
-          penalty += tile.value * 150; // Increased from 100
+          penalty += Math.log2(tile.value) * 150; // Logarithmic scaling
         }
       }
     }
@@ -691,7 +691,7 @@ GameManager.prototype.evaluateTopLeftDangers = function(grid, maxTile) {
       
       if (!canMergeRight && !canMergeDown) {
         // Top-left is trapped!
-        penalty += maxTile * 300; // Increased from 200
+        penalty += Math.log2(maxTile) * 300; // Logarithmic scaling to prevent exponential growth
       }
     }
   }
@@ -793,7 +793,7 @@ GameManager.prototype.evaluateDirectionalMergeChains = function(grid, direction)
       
       // Score based on chain length and tile value
       if (chainLength >= 2) {
-        score += tile.value * chainLength * chainLength; // Quadratic bonus for longer chains
+        score += Math.log2(tile.value) * chainLength * chainLength * 10; // Logarithmic to prevent exponential growth
       }
     }
   }
@@ -850,11 +850,11 @@ GameManager.prototype.evaluateFlexibleCornerStrategy = function(grid) {
     let tile = grid.cellContent(corner);
     if (tile) {
       // Bonus for having high-value tiles in corners, scaled by value
-      let cornerBonus = tile.value * 100;
+      let cornerBonus = Math.log2(tile.value) * 100; // Logarithmic scaling
       
       // Extra bonus if it's the max tile
       if (tile.value === maxTile) {
-        cornerBonus += maxTile * 500; // Moderate bonus, not overwhelming
+        cornerBonus += Math.log2(maxTile) * 500; // Logarithmic scaling
       }
       
       bestCornerScore = Math.max(bestCornerScore, cornerBonus);
@@ -1168,9 +1168,9 @@ GameManager.prototype.evaluateEdgeCornerPlacement = function(grid, maxTile) {
   for (let corner of corners) {
     let tile = grid.cellContent(corner);
     if (tile && tile.value >= 256) {
-      score += tile.value * 5; // Bonus for corner placement
+      score += Math.log2(tile.value) * 5; // Bonus for corner placement (logarithmic)
       if (corner.x === 0 && corner.y === 0) {
-        score += tile.value * 10; // Extra bonus for top-left corner
+        score += Math.log2(tile.value) * 10; // Extra bonus for top-left corner (logarithmic)
       }
     }
   }
@@ -1179,7 +1179,7 @@ GameManager.prototype.evaluateEdgeCornerPlacement = function(grid, maxTile) {
   for (let edge of edges) {
     let tile = grid.cellContent(edge);
     if (tile && tile.value >= 256) {
-      score += tile.value * 2;
+      score += Math.log2(tile.value) * 2; // Logarithmic scaling
     }
   }
   
@@ -1188,7 +1188,7 @@ GameManager.prototype.evaluateEdgeCornerPlacement = function(grid, maxTile) {
     for (let y = 1; y < 3; y++) {
       let tile = grid.cellContent({x: x, y: y});
       if (tile && tile.value >= 256) {
-        score -= tile.value * 3; // Penalty for mid-board positioning
+        score -= Math.log2(tile.value) * 3; // Penalty for mid-board positioning (logarithmic)
       }
     }
   }

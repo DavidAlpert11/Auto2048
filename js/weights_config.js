@@ -3,16 +3,16 @@
 var FactorWeights = {
   // Default weights for each factor
   defaults: {
-    "maxTilePosition": 15000,
-    "emptyCells": 10000,
-    "edgeCornerPlacement": 3,
-    "snakePattern": 100,
-    "mergePotential": 100,
-    "monotonicity": 200,
-    "mergeChains": 40,
-    "smoothness": 25,
-    "futureMerges": 15,
-    "dangerPenalties": 1.5
+    "maxTilePosition": 150000,
+    "emptyCells": 100000,
+    "edgeCornerPlacement": 30,
+    "snakePattern": 1000,
+    "mergePotential": 1000,
+    "monotonicity": 2000,
+    "mergeChains": 400,
+    "smoothness": 250,
+    "futureMerges": 150,
+    "dangerPenalties": 15
   },
 
   // Factor descriptions for the UI
