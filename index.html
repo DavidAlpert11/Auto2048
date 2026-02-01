@@ -228,31 +228,32 @@
           var weight = FactorWeights.get(factorName);
           var description = FactorWeights.getDescription(factorName);
           
-          // Determine appropriate slider range based on factor
-          var max = weight * 3 > 100 ? weight * 3 : 100;
+          // Determine appropriate slider range - allow much higher values
+          var max = weight * 2 > 500 ? weight * 2 : 500;
           var step = weight > 10 ? 1 : 0.1;
           
           var html = '<div style="padding: 10px; background: rgba(0,0,0,0.08); border-radius: 3px;">' +
-            '<div style="display: flex; justify-content: space-between; margin-bottom: 5px;">' +
+            '<div style="display: flex; justify-content: space-between; margin-bottom: 5px; align-items: center;">' +
             '<label style="font-size: 13px; font-weight: bold;">' + description + '</label>' +
-            '<span class="weight-value" data-factor="' + factorName + '" style="font-size: 12px; background: rgba(0,0,0,0.15); padding: 2px 6px; border-radius: 2px;">' + weight.toFixed(2) + '</span>' +
+            '<input type="number" class="weight-input" data-factor="' + factorName + '" value="' + weight.toFixed(2) + '" style="width: 80px; padding: 4px; font-size: 12px; border: 1px solid #999; border-radius: 2px; text-align: right;" step="0.01" min="0">' +
             '</div>' +
             '<input type="range" class="weight-slider" data-factor="' + factorName + '" min="0" max="' + max + '" step="' + step + '" value="' + weight + '" style="width: 100%; cursor: pointer;">' +
+            '<div style="font-size: 11px; color: #666; margin-top: 3px;">Range: 0 to ' + max + ' (type to exceed)</div>' +
             '</div>';
           
           weightsContainer.innerHTML += html;
         });
 
-        // Attach change listeners to all sliders
+        // Attach change listeners to sliders
         document.querySelectorAll(".weight-slider").forEach(function(slider) {
           slider.addEventListener("input", function() {
             var factorName = this.getAttribute("data-factor");
             var value = this.value;
             FactorWeights.set(factorName, value);
             
-            // Update displayed value
-            var valueSpan = document.querySelector('.weight-value[data-factor="' + factorName + '"]');
-            valueSpan.textContent = parseFloat(value).toFixed(2);
+            // Update input field
+            var input = document.querySelector('.weight-input[data-factor="' + factorName + '"]');
+            input.value = parseFloat(value).toFixed(2);
             
             // Visual feedback - highlight the changed weight
             var sliderContainer = this.closest('div');
@@ -261,6 +262,48 @@
               setTimeout(function() {
                 sliderContainer.style.background = 'rgba(0,0,0,0.08)'; // Return to normal
               }, 500);
+            }
+          });
+        });
+
+        // Attach change listeners to number inputs - allow typing any value
+        document.querySelectorAll(".weight-input").forEach(function(input) {
+          input.addEventListener("change", function() {
+            var factorName = this.getAttribute("data-factor");
+            var value = parseFloat(this.value);
+            
+            if (isNaN(value) || value < 0) {
+              value = 0;
+            }
+            
+            FactorWeights.set(factorName, value);
+            this.value = value.toFixed(2);
+            
+            // Update slider if value is within slider range
+            var slider = document.querySelector('.weight-slider[data-factor="' + factorName + '"]');
+            if (slider && value <= parseFloat(slider.max)) {
+              slider.value = value;
+            }
+            
+            // Visual feedback
+            var inputContainer = this.closest('div');
+            if (inputContainer) {
+              inputContainer.style.background = 'rgba(100, 200, 255, 0.2)'; // Blue highlight for input
+              setTimeout(function() {
+                inputContainer.style.background = 'rgba(0,0,0,0.08)'; // Return to normal
+              }, 500);
+            }
+          });
+          
+          // Real-time preview while typing
+          input.addEventListener("input", function() {
+            var value = parseFloat(this.value);
+            if (!isNaN(value)) {
+              var factorName = this.getAttribute("data-factor");
+              var slider = document.querySelector('.weight-slider[data-factor="' + factorName + '"]');
+              if (slider && value <= parseFloat(slider.max)) {
+                slider.value = value;
+              }
             }
           });
         });

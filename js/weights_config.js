@@ -6,7 +6,7 @@ var FactorWeights = {
     "maxTilePosition": 15000,
     "emptyCells": 10000,
     "edgeCornerPlacement": 3,
-    "snakePattern": 2.5,
+    "snakePattern": 100,
     "mergePotential": 100,
     "monotonicity": 200,
     "mergeChains": 40,
