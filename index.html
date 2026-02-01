@@ -30,12 +30,34 @@
       <p class="game-intro">Join the numbers and get to the <strong>2048 tile!</strong></p>
       <a class="restart-button">New Game</a>
       <button id="toggle-mode">Switch to Automatic</button>
+      <button id="toggle-weights" style="margin-left: 10px; padding: 10px 15px; background: #8f7a66; color: #f9f6f2; border: none; border-radius: 3px; cursor: pointer; font-weight: bold;">⚙️ Weights</button>
       
       <!-- Speed Control for Automatic Mode -->
       <div id="speed-control" style="display: none; margin-top: 15px; padding: 10px; background: rgba(0,0,0,0.1); border-radius: 5px; text-align: center;">
         <label for="ai-speed" style="display: block; margin-bottom: 8px; font-size: 14px; font-weight: bold;">AI Speed: <span id="speed-value">1.0</span>s per move</label>
         <input type="range" id="ai-speed" min="0.1" max="5" step="0.1" value="1.0" style="width: 100%; max-width: 200px; cursor: pointer;">
         <div style="font-size: 12px; margin-top: 5px; color: #999;">Instant (0.1s) → Slow (5s)</div>
+      </div>
+
+      <!-- Factor Weights Control Panel -->
+      <div id="weights-panel" style="display: none; margin-top: 15px; padding: 15px; background: rgba(0,0,0,0.15); border-radius: 5px; max-height: 500px; overflow-y: auto;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+          <h3 style="margin: 0; font-size: 16px;">Factor Weights</h3>
+          <div>
+            <button id="reset-weights" style="padding: 5px 10px; margin-right: 5px; background: #d6cdc7; border: none; border-radius: 3px; cursor: pointer; font-size: 12px;">Reset</button>
+            <button id="export-weights" style="padding: 5px 10px; background: #d6cdc7; border: none; border-radius: 3px; cursor: pointer; font-size: 12px;">Export</button>
+          </div>
+        </div>
+        
+        <div id="weights-container" style="display: grid; grid-template-columns: 1fr; gap: 12px;">
+          <!-- Weight sliders will be inserted here by JavaScript -->
+        </div>
+        
+        <div style="margin-top: 15px; padding-top: 15px; border-top: 1px solid rgba(0,0,0,0.2);">
+          <label for="import-weights" style="display: block; font-size: 12px; margin-bottom: 5px;">Import Weights (JSON):</label>
+          <textarea id="import-weights" style="width: 100%; height: 60px; padding: 5px; font-size: 11px; font-family: monospace; border: 1px solid #999; border-radius: 3px;" placeholder='{"factor1": 15000, ...}'></textarea>
+          <button id="import-button" style="margin-top: 5px; padding: 5px 10px; background: #d6cdc7; border: none; border-radius: 3px; cursor: pointer; font-size: 12px;">Import</button>
+        </div>
       </div>
 
     </div>
@@ -97,6 +119,7 @@
   <script src="js/bind_polyfill.js"></script>
   <script src="js/classlist_polyfill.js"></script>
   <script src="js/animframe_polyfill.js"></script>
+  <script src="js/weights_config.js"></script>
   <script src="js/keyboard_input_manager.js"></script>
   <script src="js/html_actuator.js"></script>
   <script src="js/grid.js"></script>
@@ -104,5 +127,105 @@
   <script src="js/local_storage_manager.js"></script>
   <script src="js/game_manager.js"></script>
   <script src="js/application.js"></script>
+
+  <!-- Weights Panel UI Handler -->
+  <script>
+    // Initialize weights panel
+    function initWeightsPanel() {
+      var weightsToggle = document.getElementById("toggle-weights");
+      var weightsPanel = document.getElementById("weights-panel");
+      var weightsContainer = document.getElementById("weights-container");
+      var resetBtn = document.getElementById("reset-weights");
+      var exportBtn = document.getElementById("export-weights");
+      var importBtn = document.getElementById("import-button");
+      var importTextarea = document.getElementById("import-weights");
+
+      // Toggle panel visibility
+      weightsToggle.addEventListener("click", function() {
+        weightsPanel.style.display = weightsPanel.style.display === "none" ? "block" : "none";
+      });
+
+      // Create weight sliders
+      function createWeightSliders() {
+        weightsContainer.innerHTML = "";
+        var factorNames = FactorWeights.getFactorNames();
+        
+        factorNames.forEach(function(factorName) {
+          var weight = FactorWeights.get(factorName);
+          var description = FactorWeights.getDescription(factorName);
+          
+          // Determine appropriate slider range based on factor
+          var max = weight * 3 > 100 ? weight * 3 : 100;
+          var step = weight > 10 ? 1 : 0.1;
+          
+          var html = '<div style="padding: 10px; background: rgba(0,0,0,0.08); border-radius: 3px;">' +
+            '<div style="display: flex; justify-content: space-between; margin-bottom: 5px;">' +
+            '<label style="font-size: 13px; font-weight: bold;">' + description + '</label>' +
+            '<span class="weight-value" data-factor="' + factorName + '" style="font-size: 12px; background: rgba(0,0,0,0.15); padding: 2px 6px; border-radius: 2px;">' + weight.toFixed(2) + '</span>' +
+            '</div>' +
+            '<input type="range" class="weight-slider" data-factor="' + factorName + '" min="0" max="' + max + '" step="' + step + '" value="' + weight + '" style="width: 100%; cursor: pointer;">' +
+            '</div>';
+          
+          weightsContainer.innerHTML += html;
+        });
+
+        // Attach change listeners to all sliders
+        document.querySelectorAll(".weight-slider").forEach(function(slider) {
+          slider.addEventListener("input", function() {
+            var factorName = this.getAttribute("data-factor");
+            var value = this.value;
+            FactorWeights.set(factorName, value);
+            
+            // Update displayed value
+            document.querySelector('.weight-value[data-factor="' + factorName + '"]').textContent = parseFloat(value).toFixed(2);
+          });
+        });
+      }
+
+      // Reset to defaults
+      resetBtn.addEventListener("click", function() {
+        if (confirm("Reset all weights to defaults?")) {
+          FactorWeights.reset();
+          createWeightSliders();
+          alert("Weights reset to defaults!");
+        }
+      });
+
+      // Export weights
+      exportBtn.addEventListener("click", function() {
+        var json = FactorWeights.export();
+        importTextarea.value = json;
+        importTextarea.focus();
+        importTextarea.select();
+        document.execCommand("copy");
+        alert("Weights copied to clipboard!");
+      });
+
+      // Import weights
+      importBtn.addEventListener("click", function() {
+        var json = importTextarea.value.trim();
+        if (json) {
+          if (FactorWeights.import(json)) {
+            createWeightSliders();
+            alert("Weights imported successfully!");
+          } else {
+            alert("Invalid JSON format!");
+          }
+        } else {
+          alert("Please paste JSON in the textarea first");
+        }
+      });
+
+      // Create initial sliders
+      createWeightSliders();
+    }
+
+    // Initialize when DOM is ready
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", initWeightsPanel);
+    } else {
+      initWeightsPanel();
+    }
+  </script>
 </body>
 </html>

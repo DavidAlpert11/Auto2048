@@ -434,54 +434,72 @@ GameManager.prototype.evaluateTopLeftStrategy = function(grid, gamePhase) {
   let score = 0;
   
   try {
+    // Get weights from FactorWeights if available, otherwise use defaults
+    var getWeight = function(factorName, defaultValue) {
+      if (typeof FactorWeights !== 'undefined' && FactorWeights.get) {
+        return FactorWeights.get(factorName);
+      }
+      return defaultValue;
+    };
+
     // 1. ABSOLUTE PRIORITY: Keep largest tile in top-left corner (0,0)
     let maxTile = this.getMaxTile(grid);
     let topLeftTile = grid.cellContent({x: 0, y: 0});
+    let maxTileWeight = getWeight("maxTilePosition", 15000);
     
     // IMPROVED: Stronger weight for keeping max tile in corner
     if (topLeftTile && topLeftTile.value === maxTile) {
-      score += maxTile * 15000; // Increased from 10000
+      score += maxTile * maxTileWeight;
     } else if (topLeftTile && topLeftTile.value >= maxTile / 2) {
-      score += topLeftTile.value * 12000; // Reward high tiles in corner
+      score += topLeftTile.value * (maxTileWeight * 0.8);
     } else {
-      score -= maxTile * 8000; // Increased penalty from 5000
+      score -= maxTile * (maxTileWeight * 0.533);
     }
     
     // 2. Empty cells for flexibility (very important)
     let emptyCells = this.getEmptyCells(grid).length;
-    score += emptyCells * 10000; // Increased from 8000
+    let emptyCellsWeight = getWeight("emptyCells", 10000);
+    score += emptyCells * emptyCellsWeight;
     
     // 3. Edge and corner tile positioning (NEW IMPROVEMENT)
     let edgeCornerScore = this.evaluateEdgeCornerPlacement(grid, maxTile);
-    score += edgeCornerScore * 3;
+    let edgeCornerWeight = getWeight("edgeCornerPlacement", 3);
+    score += edgeCornerScore * edgeCornerWeight;
     
     // 4. Snake pattern FROM TOP-LEFT (high priority)
     let snakeScore = this.evaluateTopLeftSnakePattern(grid);
-    score += snakeScore * 2.5; // Increased from 2
+    let snakeWeight = getWeight("snakePattern", 2.5);
+    score += snakeScore * snakeWeight;
     
     // 5. Merge potential (tactical advantage)
     let mergeScore = this.evaluateMergePotential(grid);
-    score += mergeScore * 100; // Increased from 80
+    let mergeWeight = getWeight("mergePotential", 100);
+    score += mergeScore * mergeWeight;
     
     // 6. Top-left monotonicity (support the strategy)
     let monoScore = this.evaluateTopLeftMonotonicity(grid);
-    score += monoScore * 200; // Increased from 150
+    let monoWeight = getWeight("monotonicity", 200);
+    score += monoScore * monoWeight;
     
     // 7. Merge chains (look ahead for combinations)
     let chainScore = this.evaluateMergeChains(grid);
-    score += chainScore * 40; // Increased from 30
+    let chainWeight = getWeight("mergeChains", 40);
+    score += chainScore * chainWeight;
     
     // 8. Smoothness around top-left area
     let smoothness = this.evaluateTopLeftSmoothness(grid);
-    score += smoothness * 25; // Increased from 20
+    let smoothWeight = getWeight("smoothness", 25);
+    score += smoothness * smoothWeight;
     
     // 9. Future merge prediction (NEW IMPROVEMENT)
     let futureScore = this.predictFutureMerges(grid);
-    score += futureScore * 15;
+    let futureWeight = getWeight("futureMerges", 15);
+    score += futureScore * futureWeight;
     
     // 10. Strong penalty for breaking top-left strategy
     let dangers = this.evaluateTopLeftDangers(grid, maxTile);
-    score -= dangers * 1.5; // Increased penalty multiplier
+    let dangerWeight = getWeight("dangerPenalties", 1.5);
+    score -= dangers * dangerWeight;
     
   } catch (error) {
     return -Infinity;
