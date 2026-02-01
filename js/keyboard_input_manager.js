@@ -19,6 +19,7 @@
 function KeyboardInputManager(gamemanager) {
   this.events = {};
   this.isAutomaticMode = false; // Track if in automatic mode
+  this.aiSpeed = 1.0; // Default speed: 1 second per move
   this.gamemanager = gamemanager;
   this.nextMove = 0;
   this.readyToNextMove =false;
@@ -43,6 +44,21 @@ function KeyboardInputManager(gamemanager) {
 KeyboardInputManager.prototype.bindToggleMode = function () {
   var self = this;
   var toggleButton = document.getElementById("toggle-mode");
+  var speedControl = document.getElementById("speed-control");
+  var speedSlider = document.getElementById("ai-speed");
+  var speedValue = document.getElementById("speed-value");
+
+  // Handle speed control slider
+  speedSlider.addEventListener("input", function () {
+    self.aiSpeed = parseFloat(this.value);
+    speedValue.textContent = this.value;
+    
+    // If automatic mode is running, restart with new speed
+    if (self.isAutomaticMode && self.autoMoveInterval) {
+      self.stopAutomaticMove();
+      self.startAutomaticMove();
+    }
+  });
 
   // Handle button clicks to switch modes
   toggleButton.addEventListener("click", function () {
@@ -50,9 +66,11 @@ KeyboardInputManager.prototype.bindToggleMode = function () {
 
     if (self.isAutomaticMode) {
       toggleButton.textContent = "Switch to Manual";
+      speedControl.style.display = "block"; // Show speed control
       self.startAutomaticMove(); // Start automatic moves
     } else {
       toggleButton.textContent = "Switch to Automatic";
+      speedControl.style.display = "none"; // Hide speed control
       self.stopAutomaticMove(); // Stop automatic moves
     }
   });
@@ -81,7 +99,9 @@ KeyboardInputManager.prototype.startAutomaticMove = function () {
 
   // Start automatic movement only if not already running
   if (this.isAutomaticMode && !this.autoMoveInterval) {
-    this.autoMoveInterval = setInterval(algorithmicMove, 10); // Move every 200ms
+    // Convert aiSpeed from seconds to milliseconds
+    var delayMs = this.aiSpeed * 1000;
+    this.autoMoveInterval = setInterval(algorithmicMove, delayMs); // Move at specified speed
   }
 };
 

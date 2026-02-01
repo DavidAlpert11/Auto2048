@@ -1,11 +1,8 @@
 function GameManager(size, InputManager, Actuator, StorageManager) {
   this.size           = size; // Size of the grid
-  // this.inputManager   = new InputManager;
   this.inputManager = new InputManager(this);
-
   this.storageManager = new StorageManager;
   this.actuator       = new Actuator;
-
   this.startTiles     = 2;
 
   this.inputManager.on("move", this.move.bind(this));
@@ -33,7 +30,7 @@ GameManager.prototype.isGameTerminated = function () {
   return this.over || (this.won && !this.keepPlaying);
 };
 
-// Set up the game
+// Set up the game - UNCHANGED to preserve working tile initialization
 GameManager.prototype.setup = function () {
   var previousState = this.storageManager.getGameState();
 
@@ -60,14 +57,14 @@ GameManager.prototype.setup = function () {
   this.actuate();
 };
 
-// Set up the initial tiles to start the game with
+// Set up the initial tiles - UNCHANGED
 GameManager.prototype.addStartTiles = function () {
   for (var i = 0; i < this.startTiles; i++) {
     this.addRandomTile();
   }
 };
 
-// Adds a tile in a random position
+// Adds a tile in a random position - UNCHANGED
 GameManager.prototype.addRandomTile = function () {
   if (this.grid.cellsAvailable()) {
     var value = Math.random() < 0.9 ? 2 : 4;
@@ -77,7 +74,7 @@ GameManager.prototype.addRandomTile = function () {
   }
 };
 
-// Sends the updated grid to the actuator
+// Sends the updated grid to the actuator - UNCHANGED (no automatic trigger)
 GameManager.prototype.actuate = function () {
   if (this.storageManager.getBestScore() < this.score) {
     this.storageManager.setBestScore(this.score);
@@ -98,10 +95,7 @@ GameManager.prototype.actuate = function () {
     terminated: this.isGameTerminated()
   });
 
-  // var bestmove = this.decideNextMove();
-  // this.inputManager.SendNextMove(bestmove);
-  
-
+  // NO automatic trigger here - your InputManager handles it
 };
 
 // Represent the current game as an object
@@ -131,9 +125,6 @@ GameManager.prototype.moveTile = function (tile, cell) {
   this.grid.cells[cell.x][cell.y] = tile;
   tile.updatePosition(cell);
 };
-
-
-
 
 // Move tiles on the grid in the specified direction
 GameManager.prototype.move = function (direction) {
@@ -251,7 +242,6 @@ GameManager.prototype.movesAvailable = function () {
 // Check for available matches between tiles (more expensive check)
 GameManager.prototype.tileMatchesAvailable = function () {
   var self = this;
-
   var tile;
 
   for (var x = 0; x < this.size; x++) {
@@ -262,7 +252,6 @@ GameManager.prototype.tileMatchesAvailable = function () {
         for (var direction = 0; direction < 4; direction++) {
           var vector = self.getVector(direction);
           var cell   = { x: x + vector.x, y: y + vector.y };
-
           var other  = self.grid.cellContent(cell);
 
           if (other && other.value === tile.value) {
@@ -280,11 +269,725 @@ GameManager.prototype.positionsEqual = function (first, second) {
   return first.x === second.x && first.y === second.y;
 };
 
+// ============================================================================
+// ADVANCED AI ALGORITHM - IMPROVED FOR TOP-LEFT CORNER STRATEGY
+// ============================================================================
 
-GameManager.prototype.findFarthestPositionDemo = function (clonedGrid,cell, vector) {
+// MAIN AI DECISION FUNCTION - Works with your InputManager system
+GameManager.prototype.decideNextMove = function () {
+  let bestMove = 0;
+  let bestScore = -Infinity;
+  
+  // Adaptive parameters based on game state
+  const emptyCells = this.getEmptyCells(this.grid).length;
+  const maxTile = this.getMaxTile(this.grid);
+  
+  // IMPROVED: More aggressive depth for better lookahead
+  let MAX_DEPTH = 5;
+  if (maxTile >= 2048) {
+    MAX_DEPTH = 6; // Ultra-deep analysis for endgame near 2048
+  } else if (maxTile >= 1024 || emptyCells <= 4) {
+    MAX_DEPTH = 5; // Deeper for critical late game
+  } else if (maxTile >= 512) {
+    MAX_DEPTH = 5; // Good search depth for mid-game
+  } else if (emptyCells >= 14) {
+    MAX_DEPTH = 3; // Quick decisions in early game
+  }
+
+  // Pre-compute board metrics for efficiency
+  const gamePhase = this.getGamePhase(maxTile, emptyCells);
+  const boardComplexity = this.calculateBoardComplexity(this.grid);
+  
+  console.log(`AI Analysis: maxTile=${maxTile}, empty=${emptyCells}, depth=${MAX_DEPTH}, phase=${gamePhase}, complexity=${boardComplexity.toFixed(1)}`);
+
+  // Try each possible move
+  let moveScores = [];
+  
+  for (let direction = 0; direction < 4; direction++) {
+    try {
+      let clonedGrid = this.cloneGrid(this.grid);
+      this.clonedGrid = clonedGrid;
+      this.moveDemo(direction);
+      
+      // Skip if move doesn't change the board
+      if (this.isGridsEqual(this.grid, this.clonedGrid)) {
+        moveScores.push({direction: direction, score: -Infinity, moved: false});
+        continue;
+      }
+
+      // Use improved Expectimax with top-left corner bias
+      let score = this.expectimaxTopLeftBias(this.clonedGrid, MAX_DEPTH - 1, false, gamePhase);
+      moveScores.push({direction: direction, score: score, moved: true});
+      
+      if (score > bestScore) {
+        bestScore = score;
+        bestMove = direction;
+      }
+    } catch (error) {
+      console.error(`Error evaluating direction ${direction}:`, error);
+      moveScores.push({direction: direction, score: -Infinity, moved: false});
+      continue;
+    }
+  }
+
+  // Log all move scores for debugging
+  console.log(`Move scores: ${moveScores.map(m => `${['U','R','D','L'][m.direction]}=${m.score.toFixed(0)}`).join(', ')}`);
+  console.log(`AI Decision: Move ${bestMove} (${['Up','Right','Down','Left'][bestMove]}) with score ${bestScore.toFixed(0)}`);
+  
+  this.best_move_auto = bestMove;
+  return bestMove;
+};
+
+// EXPECTIMAX WITH TOP-LEFT CORNER BIAS
+GameManager.prototype.expectimaxTopLeftBias = function(grid, depth, isPlayerTurn, gamePhase) {
+  if (depth === 0 || !grid) {
+    return this.evaluateTopLeftStrategy(grid, gamePhase);
+  }
+
+  if (isPlayerTurn) {
+    let maxScore = -Infinity;
+    
+    for (let direction = 0; direction < 4; direction++) {
+      try {
+        let tempGrid = this.cloneGrid(grid);
+        let originalClonedGrid = this.clonedGrid;
+        this.clonedGrid = tempGrid;
+        this.moveDemo(direction);
+        
+        if (this.isGridsEqual(grid, this.clonedGrid)) {
+          this.clonedGrid = originalClonedGrid;
+          continue;
+        }
+        
+        let score = this.expectimaxTopLeftBias(this.clonedGrid, depth - 1, false, gamePhase);
+        maxScore = Math.max(maxScore, score);
+        this.clonedGrid = originalClonedGrid;
+      } catch (error) {
+        continue;
+      }
+    }
+    
+    return maxScore === -Infinity ? this.evaluateTopLeftStrategy(grid, gamePhase) : maxScore;
+  } else {
+    let emptyCells = this.getEmptyCells(grid);
+    
+    if (emptyCells.length === 0) {
+      return this.evaluateTopLeftStrategy(grid, gamePhase);
+    }
+    
+    let expectedScore = 0;
+    let validMoves = 0;
+    
+    // Limit cells for performance - prioritize strategic positions
+    let cellsToConsider = Math.min(emptyCells.length, 4);
+    let selectedCells = this.selectStrategicCells(grid, emptyCells, cellsToConsider);
+    
+    for (let cell of selectedCells) {
+      try {
+        // 90% chance of spawning 2
+        let grid2 = this.cloneGrid(grid);
+        grid2.insertTile(new Tile(cell, 2));
+        expectedScore += 0.9 * this.expectimaxTopLeftBias(grid2, depth - 1, true, gamePhase);
+        
+        // 10% chance of spawning 4
+        let grid4 = this.cloneGrid(grid);
+        grid4.insertTile(new Tile(cell, 4));
+        expectedScore += 0.1 * this.expectimaxTopLeftBias(grid4, depth - 1, true, gamePhase);
+        
+        validMoves++;
+      } catch (error) {
+        continue;
+      }
+    }
+    
+    return validMoves > 0 ? expectedScore / validMoves : this.evaluateTopLeftStrategy(grid, gamePhase);
+  }
+};
+
+// SELECT STRATEGIC CELLS (favor positions that support top-left strategy)
+GameManager.prototype.selectStrategicCells = function(grid, emptyCells, maxCells) {
+  if (emptyCells.length <= maxCells) return emptyCells;
+  
+  // Score cells based on strategic value for top-left corner strategy
+  let cellScores = emptyCells.map(cell => {
+    let score = 0;
+    
+    // Prefer cells closer to top-left
+    score += (4 - cell.x - cell.y) * 10;
+    
+    // Avoid placing tiles that could disrupt the top-left corner
+    if (cell.x === 0 && cell.y === 0) {
+      score -= 1000; // Never put random tiles in top-left corner
+    }
+    
+    return {cell: cell, score: score};
+  });
+  
+  cellScores.sort((a, b) => b.score - a.score);
+  return cellScores.slice(0, maxCells).map(item => item.cell);
+};
+
+// BALANCED EVALUATION - TOP-LEFT CORNER FIRST, THEN SNAKE + MERGES
+GameManager.prototype.evaluateTopLeftStrategy = function(grid, gamePhase) {
+  if (!grid) return -Infinity;
+  
+  let score = 0;
+  
+  try {
+    // 1. ABSOLUTE PRIORITY: Keep largest tile in top-left corner (0,0)
+    let maxTile = this.getMaxTile(grid);
+    let topLeftTile = grid.cellContent({x: 0, y: 0});
+    
+    // IMPROVED: Stronger weight for keeping max tile in corner
+    if (topLeftTile && topLeftTile.value === maxTile) {
+      score += maxTile * 15000; // Increased from 10000
+    } else if (topLeftTile && topLeftTile.value >= maxTile / 2) {
+      score += topLeftTile.value * 12000; // Reward high tiles in corner
+    } else {
+      score -= maxTile * 8000; // Increased penalty from 5000
+    }
+    
+    // 2. Empty cells for flexibility (very important)
+    let emptyCells = this.getEmptyCells(grid).length;
+    score += emptyCells * 10000; // Increased from 8000
+    
+    // 3. Edge and corner tile positioning (NEW IMPROVEMENT)
+    let edgeCornerScore = this.evaluateEdgeCornerPlacement(grid, maxTile);
+    score += edgeCornerScore * 3;
+    
+    // 4. Snake pattern FROM TOP-LEFT (high priority)
+    let snakeScore = this.evaluateTopLeftSnakePattern(grid);
+    score += snakeScore * 2.5; // Increased from 2
+    
+    // 5. Merge potential (tactical advantage)
+    let mergeScore = this.evaluateMergePotential(grid);
+    score += mergeScore * 100; // Increased from 80
+    
+    // 6. Top-left monotonicity (support the strategy)
+    let monoScore = this.evaluateTopLeftMonotonicity(grid);
+    score += monoScore * 200; // Increased from 150
+    
+    // 7. Merge chains (look ahead for combinations)
+    let chainScore = this.evaluateMergeChains(grid);
+    score += chainScore * 40; // Increased from 30
+    
+    // 8. Smoothness around top-left area
+    let smoothness = this.evaluateTopLeftSmoothness(grid);
+    score += smoothness * 25; // Increased from 20
+    
+    // 9. Future merge prediction (NEW IMPROVEMENT)
+    let futureScore = this.predictFutureMerges(grid);
+    score += futureScore * 15;
+    
+    // 10. Strong penalty for breaking top-left strategy
+    let dangers = this.evaluateTopLeftDangers(grid, maxTile);
+    score -= dangers * 1.5; // Increased penalty multiplier
+    
+  } catch (error) {
+    return -Infinity;
+  }
+  
+  return score;
+};
+
+// EVALUATE TOP-LEFT SNAKE PATTERN SPECIFICALLY
+GameManager.prototype.evaluateTopLeftSnakePattern = function(grid) {
+  // Snake pattern starting from top-left corner
+  const topLeftSnake = [
+    [0,0],[1,0],[2,0],[3,0],  // Top row: left to right
+    [3,1],[2,1],[1,1],[0,1],  // Second row: right to left
+    [0,2],[1,2],[2,2],[3,2],  // Third row: left to right
+    [3,3],[2,3],[1,3],[0,3]   // Bottom row: right to left
+  ];
+  
+  let tiles = [];
+  let actualValues = [];
+  
+  // Extract values in snake order
+  for (let [x, y] of topLeftSnake) {
+    let tile = grid.cellContent({x: x, y: y});
+    let value = tile ? tile.value : 0;
+    tiles.push(value);
+    if (value > 0) actualValues.push(value);
+  }
+  
+  // Sort to get ideal descending order
+  let idealOrder = [...actualValues].sort((a, b) => b - a);
+  
+  let score = 0;
+  let idealIndex = 0;
+  
+  // Score based on how well tiles follow the top-left snake pattern
+  for (let i = 0; i < tiles.length && idealIndex < idealOrder.length; i++) {
+    if (tiles[i] > 0) {
+      if (tiles[i] === idealOrder[idealIndex]) {
+        // Perfect match - highest score for early positions
+        score += tiles[i] * (16 - i) * 3;
+        idealIndex++;
+      } else if (idealIndex < idealOrder.length - 1 && 
+                 (tiles[i] === idealOrder[idealIndex + 1] || tiles[i] === idealOrder[idealIndex + 2])) {
+        // Close match - decent score
+        score += tiles[i] * (16 - i) * 1;
+      }
+    }
+  }
+  
+  return score;
+};
+
+// EVALUATE TOP-LEFT MONOTONICITY (STRICT)
+GameManager.prototype.evaluateTopLeftMonotonicity = function(grid) {
+  let monoScore = 0;
+  
+  // Top row should decrease from left to right
+  for (let x = 0; x < grid.size - 1; x++) {
+    let current = grid.cellContent({x: x, y: 0});
+    let next = grid.cellContent({x: x + 1, y: 0});
+    
+    if (current && next) {
+      if (current.value >= next.value) {
+        monoScore += current.value * 2; // Reward based on tile value
+      } else {
+        monoScore -= next.value; // Penalty for wrong order
+      }
+    }
+  }
+  
+  // Left column should decrease from top to bottom
+  for (let y = 0; y < grid.size - 1; y++) {
+    let current = grid.cellContent({x: 0, y: y});
+    let next = grid.cellContent({x: 0, y: y + 1});
+    
+    if (current && next) {
+      if (current.value >= next.value) {
+        monoScore += current.value * 2; // Reward based on tile value
+      } else {
+        monoScore -= next.value; // Penalty for wrong order
+      }
+    }
+  }
+  
+  // Check that second-highest tile is adjacent to highest (in top row)
+  let maxTile = this.getMaxTile(grid);
+  let topLeftTile = grid.cellContent({x: 0, y: 0});
+  let topSecondTile = grid.cellContent({x: 1, y: 0});
+  
+  if (topLeftTile && topLeftTile.value === maxTile && topSecondTile) {
+    if (topSecondTile.value === maxTile / 2) {
+      monoScore += maxTile * 3; // Big bonus for proper setup
+    }
+  }
+  
+  return monoScore;
+};
+
+// EVALUATE SMOOTHNESS AROUND TOP-LEFT AREA
+GameManager.prototype.evaluateTopLeftSmoothness = function(grid) {
+  let smoothness = 0;
+  
+  // Focus on top-left 3x3 area where most important tiles should be
+  for (let x = 0; x < Math.min(3, grid.size); x++) {
+    for (let y = 0; y < Math.min(3, grid.size); y++) {
+      let tile = grid.cellContent({x: x, y: y});
+      if (!tile) continue;
+      
+      // Check right neighbor
+      if (x < grid.size - 1) {
+        let right = grid.cellContent({x: x + 1, y: y});
+        if (right) {
+          let ratio = Math.max(tile.value, right.value) / Math.min(tile.value, right.value);
+          if (ratio <= 2) {
+            smoothness += 100; // Bonus for smooth transitions
+          } else {
+            smoothness -= ratio * 10; // Penalty for large gaps
+          }
+        }
+      }
+      
+      // Check down neighbor
+      if (y < grid.size - 1) {
+        let down = grid.cellContent({x: x, y: y + 1});
+        if (down) {
+          let ratio = Math.max(tile.value, down.value) / Math.min(tile.value, down.value);
+          if (ratio <= 2) {
+            smoothness += 100; // Bonus for smooth transitions
+          } else {
+            smoothness -= ratio * 10; // Penalty for large gaps
+          }
+        }
+      }
+    }
+  }
+  
+  return smoothness;
+};
+
+// EVALUATE DANGERS TO TOP-LEFT STRATEGY
+GameManager.prototype.evaluateTopLeftDangers = function(grid, maxTile) {
+  let penalty = 0;
+  maxTile = maxTile || this.getMaxTile(grid);
+  
+  // CRITICAL: Large tiles in wrong places
+  for (let x = 0; x < grid.size; x++) {
+    for (let y = 0; y < grid.size; y++) {
+      let tile = grid.cellContent({x: x, y: y});
+      if (tile && tile.value >= 256) {
+        
+        // Massive penalty for large tiles far from top-left
+        let distance = x + y;
+        if (distance > 1 && tile.value >= maxTile / 2) {
+          penalty += tile.value * distance * 75; // Increased from 50
+        }
+        
+        // Extra penalty for large tiles in bottom-right area
+        if (x >= 2 && y >= 2 && tile.value >= 512) {
+          penalty += tile.value * 150; // Increased from 100
+        }
+      }
+    }
+  }
+  
+  // Penalty for blocking the escape route from top-left corner
+  let topLeftTile = grid.cellContent({x: 0, y: 0});
+  if (topLeftTile && topLeftTile.value === maxTile) {
+    
+    // Check if we can move right from top-left
+    let rightTile = grid.cellContent({x: 1, y: 0});
+    let downTile = grid.cellContent({x: 0, y: 1});
+    
+    if (rightTile && downTile) {
+      // Both positions blocked - check if we can merge
+      let canMergeRight = (rightTile.value === topLeftTile.value);
+      let canMergeDown = (downTile.value === topLeftTile.value);
+      
+      if (!canMergeRight && !canMergeDown) {
+        // Top-left is trapped!
+        penalty += maxTile * 300; // Increased from 200
+      }
+    }
+  }
+  
+  // Penalty for too many large tiles in wrong positions
+  let largeTilesCount = 0;
+  let largeTilesInTopLeft = 0;
+  
+  for (let x = 0; x < grid.size; x++) {
+    for (let y = 0; y < grid.size; y++) {
+      let tile = grid.cellContent({x: x, y: y});
+      if (tile && tile.value >= 128) {
+        largeTilesCount++;
+        if (x <= 1 && y <= 1) {
+          largeTilesInTopLeft++;
+        }
+      }
+    }
+  }
+  
+  if (largeTilesCount > 4 && largeTilesInTopLeft < largeTilesCount / 2) {
+    penalty += 3000; // Increased from 2000
+  }
+  
+  return penalty;
+};
+
+// EVALUATE SPECIFIC SNAKE PATTERN
+GameManager.prototype.evaluateSnakePattern = function(grid, pattern) {
+  let tiles = [];
+  let actualValues = [];
+  
+  // Extract values in snake order
+  for (let [x, y] of pattern) {
+    let tile = grid.cellContent({x: x, y: y});
+    let value = tile ? tile.value : 0;
+    tiles.push(value);
+    if (value > 0) actualValues.push(value);
+  }
+  
+  // Sort to get ideal descending order
+  let idealOrder = [...actualValues].sort((a, b) => b - a);
+  
+  let score = 0;
+  let idealIndex = 0;
+  
+  // Score based on how well tiles follow the snake pattern
+  for (let i = 0; i < tiles.length && idealIndex < idealOrder.length; i++) {
+    if (tiles[i] > 0) {
+      if (tiles[i] === idealOrder[idealIndex]) {
+        // Perfect match - high score
+        score += tiles[i] * (pattern.length - i) * 2;
+        idealIndex++;
+      } else if (tiles[i] === idealOrder[idealIndex + 1] || tiles[i] === idealOrder[idealIndex + 2]) {
+        // Close match - decent score
+        score += tiles[i] * (pattern.length - i) * 0.5;
+      }
+    }
+  }
+  
+  return score;
+};
+
+// EVALUATE MERGE CHAINS (2-step and 3-step merges)
+GameManager.prototype.evaluateMergeChains = function(grid) {
+  let chainScore = 0;
+  
+  // Look for potential merge chains in rows and columns
+  for (let direction = 0; direction < 4; direction++) {
+    chainScore += this.evaluateDirectionalMergeChains(grid, direction);
+  }
+  
+  return chainScore;
+};
+
+// EVALUATE MERGE CHAINS IN A SPECIFIC DIRECTION
+GameManager.prototype.evaluateDirectionalMergeChains = function(grid, direction) {
+  let score = 0;
+  let vector = this.getVector(direction);
+  
+  for (let x = 0; x < grid.size; x++) {
+    for (let y = 0; y < grid.size; y++) {
+      let tile = grid.cellContent({x: x, y: y});
+      if (!tile) continue;
+      
+      // Look for chains of 2, 3, or 4 identical values
+      let chainLength = 1;
+      let currentPos = {x: x, y: y};
+      
+      while (chainLength < 4) {
+        currentPos = {x: currentPos.x + vector.x, y: currentPos.y + vector.y};
+        if (!grid.withinBounds(currentPos)) break;
+        
+        let nextTile = grid.cellContent(currentPos);
+        if (!nextTile || nextTile.value !== tile.value) break;
+        
+        chainLength++;
+      }
+      
+      // Score based on chain length and tile value
+      if (chainLength >= 2) {
+        score += tile.value * chainLength * chainLength; // Quadratic bonus for longer chains
+      }
+    }
+  }
+  
+  return score;
+};
+
+// EVALUATE GENERAL MONOTONICITY (NOT CORNER-SPECIFIC)
+GameManager.prototype.evaluateGeneralMonotonicity = function(grid) {
+  let totalMono = 0;
+  
+  // Check monotonicity in all directions and find the best one
+  for (let direction = 0; direction < 4; direction++) {
+    let mono = this.checkDirectionalMonotonicity(grid, direction);
+    totalMono = Math.max(totalMono, mono); // Take the best monotonic direction
+  }
+  
+  return totalMono;
+};
+
+// CHECK DIRECTIONAL MONOTONICITY
+GameManager.prototype.checkDirectionalMonotonicity = function(grid, direction) {
+  let mono = 0;
+  let vector = this.getVector(direction);
+  
+  for (let x = 0; x < grid.size; x++) {
+    for (let y = 0; y < grid.size; y++) {
+      let current = grid.cellContent({x: x, y: y});
+      let nextPos = {x: x + vector.x, y: y + vector.y};
+      
+      if (!grid.withinBounds(nextPos)) continue;
+      let next = grid.cellContent(nextPos);
+      
+      if (current && next) {
+        if (current.value >= next.value) {
+          mono += Math.log2(current.value) * 10;
+        } else {
+          mono -= Math.log2(next.value) * 5;
+        }
+      }
+    }
+  }
+  
+  return Math.max(mono, 0);
+};
+
+// FLEXIBLE CORNER STRATEGY (SUGGESTS BUT DOESN'T FORCE)
+GameManager.prototype.evaluateFlexibleCornerStrategy = function(grid) {
+  let corners = [{x: 0, y: 0}, {x: 0, y: 3}, {x: 3, y: 0}, {x: 3, y: 3}];
+  let maxTile = this.getMaxTile(grid);
+  let bestCornerScore = 0;
+  
+  for (let corner of corners) {
+    let tile = grid.cellContent(corner);
+    if (tile) {
+      // Bonus for having high-value tiles in corners, scaled by value
+      let cornerBonus = tile.value * 100;
+      
+      // Extra bonus if it's the max tile
+      if (tile.value === maxTile) {
+        cornerBonus += maxTile * 500; // Moderate bonus, not overwhelming
+      }
+      
+      bestCornerScore = Math.max(bestCornerScore, cornerBonus);
+    }
+  }
+  
+  return bestCornerScore;
+};
+
+// EVALUATE SMOOTHNESS (GRADIENT BETWEEN ADJACENT TILES)
+GameManager.prototype.evaluateSmoothness = function(grid) {
+  let smoothness = 0;
+  
+  for (let x = 0; x < grid.size; x++) {
+    for (let y = 0; y < grid.size; y++) {
+      let tile = grid.cellContent({x: x, y: y});
+      if (!tile) continue;
+      
+      // Check adjacent tiles (right and down)
+      let neighbors = [];
+      if (x < grid.size - 1) {
+        let right = grid.cellContent({x: x + 1, y: y});
+        if (right) neighbors.push(right.value);
+      }
+      if (y < grid.size - 1) {
+        let down = grid.cellContent({x: x, y: y + 1});
+        if (down) neighbors.push(down.value);
+      }
+      
+      // Reward small differences between adjacent tiles
+      for (let neighborValue of neighbors) {
+        let diff = Math.abs(Math.log2(tile.value) - Math.log2(neighborValue));
+        smoothness -= diff * 10; // Penalty for large differences
+        
+        // Bonus for tiles that are powers-of-2 related (mergeable or close)
+        if (tile.value === neighborValue || tile.value === neighborValue * 2 || neighborValue === tile.value * 2) {
+          smoothness += 50;
+        }
+      }
+    }
+  }
+  
+  return smoothness;
+};
+
+// EVALUATE GENERAL DANGEROUS CONFIGURATIONS
+GameManager.prototype.evaluateGeneralDangerousConfigurations = function(grid) {
+  let penalty = 0;
+  
+  // Penalty for isolated high tiles (hard to merge)
+  for (let x = 0; x < grid.size; x++) {
+    for (let y = 0; y < grid.size; y++) {
+      let tile = grid.cellContent({x: x, y: y});
+      if (tile && tile.value >= 128) {
+        let adjacentCount = 0;
+        let mergeableAdjacent = 0;
+        
+        // Check all four directions
+        let directions = [{x:0,y:1},{x:1,y:0},{x:0,y:-1},{x:-1,y:0}];
+        for (let dir of directions) {
+          let adjPos = {x: x + dir.x, y: y + dir.y};
+          if (grid.withinBounds(adjPos)) {
+            let adj = grid.cellContent(adjPos);
+            if (adj) {
+              adjacentCount++;
+              if (adj.value === tile.value || adj.value === tile.value / 2) {
+                mergeableAdjacent++;
+              }
+            }
+          }
+        }
+        
+        // Penalty for isolated tiles with no merge potential
+        if (adjacentCount === 4 && mergeableAdjacent === 0) {
+          penalty += tile.value * 5;
+        }
+      }
+    }
+  }
+  
+  // Penalty for having the grid too full with no clear strategy
+  let emptyCells = this.getEmptyCells(grid).length;
+  if (emptyCells <= 2) {
+    let hasGoodMerges = this.evaluateMergePotential(grid);
+    if (hasGoodMerges < 100) {
+      penalty += 5000; // High penalty for being stuck
+    }
+  }
+  
+  return penalty;
+};
+
+// ============================================================================
+// UTILITY FUNCTIONS
+// ============================================================================
+
+// Get maximum tile value
+GameManager.prototype.getMaxTile = function(grid) {
+  let maxTile = 0;
+  for (let x = 0; x < grid.size; x++) {
+    for (let y = 0; y < grid.size; y++) {
+      let tile = grid.cellContent({x: x, y: y});
+      if (tile && tile.value > maxTile) {
+        maxTile = tile.value;
+      }
+    }
+  }
+  return maxTile;
+};
+
+// Helper function to get empty cells
+GameManager.prototype.getEmptyCells = function(grid) {
+  let emptyCells = [];
+  
+  for (let x = 0; x < grid.size; x++) {
+    for (let y = 0; y < grid.size; y++) {
+      if (!grid.cellContent({x: x, y: y})) {
+        emptyCells.push({x: x, y: y});
+      }
+    }
+  }
+  
+  return emptyCells;
+};
+
+// Basic merge potential evaluation
+GameManager.prototype.evaluateMergePotential = function(grid) {
+  let mergeScore = 0;
+  
+  for (let x = 0; x < grid.size; x++) {
+    for (let y = 0; y < grid.size; y++) {
+      let tile = grid.cellContent({x: x, y: y});
+      if (!tile) continue;
+      
+      // Check right neighbor
+      if (x < grid.size - 1) {
+        let rightTile = grid.cellContent({x: x + 1, y: y});
+        if (rightTile && tile.value === rightTile.value) {
+          mergeScore += tile.value;
+        }
+      }
+      
+      // Check down neighbor
+      if (y < grid.size - 1) {
+        let downTile = grid.cellContent({x: x, y: y + 1});
+        if (downTile && tile.value === downTile.value) {
+          mergeScore += tile.value;
+        }
+      }
+    }
+  }
+  
+  return mergeScore;
+};
+
+// ============================================================================
+// DEMO/SIMULATION FUNCTIONS (keep your existing ones)
+// ============================================================================
+
+GameManager.prototype.findFarthestPositionDemo = function (clonedGrid, cell, vector) {
   var previous;
 
-  // Progress towards the vector direction until an obstacle is found
   do {
     previous = cell;
     cell     = { x: previous.x + vector.x, y: previous.y + vector.y };
@@ -293,10 +996,9 @@ GameManager.prototype.findFarthestPositionDemo = function (clonedGrid,cell, vect
 
   return {
     farthest: previous,
-    next: cell // Used to check if a merge is required
+    next: cell
   };
 };
-
 
 GameManager.prototype.prepareTilesmoveDemo = function (clonedGrid) {
   clonedGrid.eachCell(function (x, y, tile) {
@@ -307,436 +1009,73 @@ GameManager.prototype.prepareTilesmoveDemo = function (clonedGrid) {
   });
 };
 
-// Move a tile and its representation
-GameManager.prototype.moveTileDemo = function (clonedGrid,tile, cell) {
+GameManager.prototype.moveTileDemo = function (clonedGrid, tile, cell) {
   clonedGrid.cells[tile.x][tile.y] = null;
   clonedGrid.cells[cell.x][cell.y] = tile;
   tile.updatePosition(cell);
 };
 
-// Move tiles on the grid in the specified direction
 GameManager.prototype.moveDemo = function (direction) {
-  // 0: up, 1: right, 2: down, 3: left
   var self = this;
-
-  // if (this.isGameTerminated()) return; // Don't do anything if the game's over
-
   var cell, tile;
 
   var vector     = this.getVector(direction);
   var traversals = this.buildTraversals(vector);
-  var moved      = false;
   self.movedemo = false;
-  // Save the current tile positions and remove merger information
+
   this.prepareTilesmoveDemo(self.clonedGrid);
 
-
-  // Traverse the grid in the right direction and move tiles
   traversals.x.forEach(function (x) {
     traversals.y.forEach(function (y) {
       cell = { x: x, y: y };
       tile = self.clonedGrid.cellContent(cell);
 
       if (tile) {
-        var positions = self.findFarthestPositionDemo(self.clonedGrid,cell, vector);
+        var positions = self.findFarthestPositionDemo(self.clonedGrid, cell, vector);
         var next      = self.clonedGrid.cellContent(positions.next);
 
-        // Only one merger per row traversal?
         if (next && next.value === tile.value && !next.mergedFrom) {
           var merged = new Tile(positions.next, tile.value * 2);
           merged.mergedFrom = [tile, next];
 
           self.clonedGrid.insertTile(merged);
           self.clonedGrid.removeTile(tile);
-
-          // Converge the two tiles' positions
           tile.updatePosition(positions.next);
-
-          // // Update the score
-          // self.score += merged.value;
-
-     
-        } 
-        else {
-          self.moveTileDemo(self.clonedGrid,tile, positions.farthest);
+        } else {
+          self.moveTileDemo(self.clonedGrid, tile, positions.farthest);
         }
+
         if (!self.positionsEqual(cell, tile)) {
-          self.movedemo = true; // The tile moved from its original cell!
+          self.movedemo = true;
         }
       }
     });
   });
-
-  // if (moved) {
-  //   this.addRandomTile();
-  // }
 };
-
-
-GameManager.prototype.decideNextMove = function () {
-  let directions = [0, 1, 2, 3]; // Up, Right, Down, Left
-  let bestMove = 0;
-  let lowestCost = Infinity;
-
-  var self = this;
-
-  // Clone the current state to ensure the original state is not affected
-  let originalGrid = self.cloneGrid(self.grid);
-  let originalScore = self.score;
-  let originalOver = self.over;
-  let originalWon = self.won;
-
-  // Iterate through each direction and calculate the cost if the move is possible
-  for (let i = 0; i < directions.length; i++) {
-    let direction = directions[i];
-    // console.log(`direction is ${direction}`);
-
-    self.clonedGrid = self.cloneGrid(originalGrid); // Clone the original grid
-    self.moveDemo(direction); // Simulate the move
-    // if (self.isGridsEqual(self.grid, clonedGrid))
-    if (!self.movedemo)
-    {
-      // console.log(`direction is not possible`);
-        continue;
-    }
-    let cost = self.calculateSnakePatternCost(self.clonedGrid); // Calculate the heuristic cost
-
-    // Choose the move with the lowest cost
-    if (cost < lowestCost) {
-      // if (cost > higherCost) {
-      lowestCost = cost;
-      // higherCost = cost;
-
-      bestMove = direction;
-    }
-  }
-
-  // Restore the original game state to ensure no changes were made
-  // self.grid = originalGrid;
-  // self.score = originalScore;
-  // self.over = originalOver;
-  // self.won = originalWon;
-  // console.log("The next move is: " + bestMove);
-  console.log(`bestMove is ${bestMove}`);
-
-  self.best_move_auto = bestMove;
-  return bestMove; // Return the best move based on the cost
-};
-
-
-GameManager.prototype.calculateSnakePatternCost = function (grid) {
-  // Define the snake pattern
-  const snakePattern = [
-    { x: 0, y: 0 }, { x: 1, y: 0 }, { x: 2, y: 0 }, { x: 3, y: 0 },
-    { x: 3, y: 1 }, { x: 2, y: 1 }, { x: 1, y: 1 }, { x: 0, y: 1 },
-    { x: 0, y: 2 }, { x: 1, y: 2 }, { x: 2, y: 2 }, { x: 3, y: 2 },
-    { x: 3, y: 3 }, { x: 2, y: 3 }, { x: 1, y: 3 }, { x: 0, y: 3 }
-  ];
-
-  let globalCost = 0;
-  let emptySpaces = 0;
-  let highestTileValue = 0;
-  let tileValues = [];
-  let idealSnakeOrder = [];
-
-  // Extract tile values from the grid and track empty spaces
-  for (let i = 0; i < snakePattern.length; i++) {
-    let current = snakePattern[i];
-    let tile = grid.cellContent({ x: current.x, y: current.y });
-
-    if (tile) {
-      tileValues.push(tile.value);
-      highestTileValue = Math.max(highestTileValue, tile.value);
-    } else {
-      tileValues.push(0); // Use 0 for empty spaces
-      emptySpaces++;
-    }
-  }
-
-  // Sort the tile values in descending order to create the ideal sequence
-  idealSnakeOrder = [...tileValues].sort((a, b) => b - a);
-
-  // Calculate global cost by comparing the current snake pattern with the ideal pattern
-  for (let i = 0; i < tileValues.length; i++) {
-    let currentValue = tileValues[i];
-    let idealValue = idealSnakeOrder[i];
-    if (i>5)
-    {
-      continue;
-    }
-
-    // Penalize if the current value deviates from the ideal value in the snake pattern
-    if (currentValue !== idealValue) {
-      globalCost += Math.abs(currentValue - idealValue) * 10; // Penalty for deviation
-    }
-    
-
-  }
-
-  // // Additional penalty if the largest tile is not in the top-left corner
-  if (grid.cellContent({ x: 0, y: 0 })?.value !== highestTileValue) {
-    globalCost += highestTileValue * 1000;
-  } 
-
-  // Additional penalty if the largest tile is not in the top-left corner
-  if (grid.cellContent({ x: 1, y: 0 })?.value !== idealSnakeOrder[1]) {
-    globalCost += idealSnakeOrder[1] * 1000;
-  }
-
-  //  // Additional penalty if the largest tile is not in the top-left corner
-  //  if (grid.cellContent({ x: 2, y: 0 })?.value !== idealSnakeOrder[2]) {
-  //   globalCost += idealSnakeOrder[2] * 200;
-  // }
-
-  //  // Additional penalty if the largest tile is not in the top-left corner
-  //  if (grid.cellContent({ x: 3, y: 0 })?.value !== idealSnakeOrder[3]) {
-  //   globalCost += idealSnakeOrder[3] * 10;
-  // }
-
-  // Additional penalty if the largest tile is not in the top-left corner
-  // if (grid.cellContent({ x: 3, y: 1 })?.value !== idealSnakeOrder[4] && grid.cellContent({ x: 3, y: 2 })?.value !== idealSnakeOrder[4]) {
-  //   globalCost += idealSnakeOrder[4] * 10;
-  // }
-
-  
-
-  // Reward empty spaces
-  globalCost -= emptySpaces * 50;
-
-  // ADDING PRIORITY FOR NEIGHBORING EQUAL TILES
-  for (let x = 0; x < grid.size; x++) {
-    for (let y = 0; y < grid.size; y++) {
-      let tile = grid.cellContent({ x: x, y: y });
-      if (tile) {
-        // Check right neighbor
-        let rightTile = grid.cellContent({ x: x + 1, y: y });
-        if (rightTile && tile.value === rightTile.value) {
-          globalCost -= tile.value * 10; // Reward for potential merge
-        }
-
-        // Check bottom neighbor
-        let downTile = grid.cellContent({ x: x, y: y + 1 });
-        if (downTile && tile.value === downTile.value) {
-          globalCost -= tile.value * 10; // Reward for potential merge
-        }
-      }
-    }
-  }
-
-  return globalCost;
-};
-// GameManager.prototype.calculateSnakePatternCost = function (grid) {
-//   const snakePattern = [
-//     { x: 0, y: 0 }, { x: 1, y: 0 }, { x: 2, y: 0 }, { x: 3, y: 0 },
-//     { x: 3, y: 1 }, { x: 2, y: 1 }, { x: 1, y: 1 }, { x: 0, y: 1 },
-//     { x: 0, y: 2 }, { x: 1, y: 2 }, { x: 2, y: 2 }, { x: 3, y: 2 },
-//     { x: 3, y: 3 }, { x: 2, y: 3 }, { x: 1, y: 3 }, { x: 0, y: 3 }
-//   ];
-//     var x_high =0;
-//   var y_high = 0;
-
-//   let globalCost = 0;
-//   let emptySpaces = 0;
-//   let highestTileValue = 0;
-//   let tileValues = [];
-//   let idealSnakeOrder = [];
-//   const balanceFactor = 0.8; // Balance between snake pattern and merge potential
-
-//   // Extract tile values from the grid
-//   for (let i = 0; i < snakePattern.length; i++) {
-//     let current = snakePattern[i];
-//     let tile = grid.cellContent({ x: current.x, y: current.y });
-
-//     if (tile) {
-//       tileValues.push(tile.value);
-//       // highestTileValue = Math.max(highestTileValue, tile.value);
-//               if (tile.value>highestTileValue)
-//         {
-//           highestTileValue = tile.value;
-//           x_high = current.x;
-//           y_high = current.y;
-//         }
-//     } else {
-//       tileValues.push(0);
-//       emptySpaces++;
-//     }
-//   }
-
-//   // Sort the tile values to create the ideal snake order
-//   idealSnakeOrder = [...tileValues].sort((a, b) => b - a);
-
-//   // --- Snake Pattern Heuristic ---
-//   let snakePatternCost = 0;
-//   for (let i = 0; i < tileValues.length; i++) {
-//     if (tileValues[i] !== idealSnakeOrder[i]) {
-//       snakePatternCost += Math.abs(tileValues[i] - idealSnakeOrder[i]);
-//     }
-//   }
-//   // Normalize snake pattern cost
-//   const maxSnakePatternCost = highestTileValue * 15; // Max cost for full deviation
-//   let normalizedSnakePatternCost = snakePatternCost / maxSnakePatternCost;
-
-//   // --- Merge Potential Heuristic ---
-//   let mergePotentialCost = 0;
-//   for (let x = 0; x < grid.size; x++) {
-//     for (let y = 0; y < grid.size; y++) {
-//       let tile = grid.cellContent({ x: x, y: y });
-//       if (tile) {
-//         // Check right neighbor
-//         let rightTile = grid.cellContent({ x: x + 1, y: y });
-//         if (rightTile && tile.value === rightTile.value) {
-//           mergePotentialCost -= tile.value * 2; // Reward for merge potential
-//         }
-
-//         // Check bottom neighbor
-//         let downTile = grid.cellContent({ x: x, y: y + 1 });
-//         if (downTile && tile.value === downTile.value) {
-//           mergePotentialCost -= tile.value * 2; // Reward for merge potential
-//         }
-//       }
-//     }
-//   }
-//   // Normalize merge potential cost
-//   const maxMergePotentialCost = highestTileValue * 15; // Assuming max reward for full merge potential
-//   let normalizedMergePotentialCost = mergePotentialCost / maxMergePotentialCost;
-
-//   // --- Combine Heuristics with Balance Factor ---
-//   globalCost = (1 - balanceFactor) * normalizedSnakePatternCost + balanceFactor * normalizedMergePotentialCost;
-
-
-//     if (x_high != 0 || y_high !=0)
-//     {
-//       //  console.log(`highestTileValue is not in topleft corner`);
-//       globalCost += highestTileValue * 100000; // Penalty if the largest tile is not in the top-left corner
-//     }
-//   return globalCost;
-// };
-
-// GameManager.prototype.calculateSnakePatternCost = function (grid) {
-//   // Define a weight matrix for the snake pattern favoring the top-left corner
-//   const weights = [
-//     [0, 70, 80, 150],
-//     [1, 60, 90, 140],
-//     [20, 50, 100, 130],
-//     [30, 40, 110, 120]
-//   ];
-
-
-//   let cost = 0;
-//   let emptySpaces = 0;
-//   let highestTileValue = 0;
-//   let tileCounts = {}; // Object to track counts of tile values
-//   var x_high =0;
-//   var y_high = 0;
-//   // Analyze the grid to calculate the cost based on positioning and values
-//   for (let x = 0; x < grid.size; x++) {
-//     for (let y = 0; y < grid.size; y++) {
-//       let tile = grid.cellContent({ x: x, y: y });
-//       if (tile) 
-//         {
-//         cost += tile.value *0.1*weights[x][y]; // Weight based on position
-//         if (tile.value>highestTileValue)
-//         {
-//           highestTileValue = tile.value;
-//           x_high = x;
-//           y_high = y;
-//         }
-
-      
-        
-//         // highestTileValue = Math.max(highestTileValue, tile.value); // Track highest tile
-//         // console.log(`tile is ${tile.value} at (${x}, ${y})`);
-
-//         // Count occurrences of each tile value
-//         tileCounts[tile.value] = (tileCounts[tile.value] || 0) + 1;
-//       } else {
-//         // console.log(`tile is undefined  at (${x}, ${y})`);
-
-        
-//         emptySpaces++;
-//       }
-//     }
-//   }
-//   // console.log(`highestTileValue is ${highestTileValue} at (${x_high}, ${y_high})`);
-
-//   // console.log(`SnakePatternCost cost is ${cost}`);
-
-//   if (x_high != 0 || y_high !=0)
-//     {
-//       //  console.log(`highestTileValue is not in topleft corner`);
-//       cost += highestTileValue * 100000; // Penalty if the largest tile is not in the top-left corner
-//     }
-
-//   // Adjust cost based on empty spaces
-//   cost -= emptySpaces * 1000; // Encouraging flexibility
-
-//   // console.log(`emptySpaces Penalty cost is ${emptySpaces * 100}`);
-//   // console.log(`highestTileValue Penalty cost is ${highestTileValue * 100000}`);
-//   console.log(`total cost is ${cost}`);
-
-//   // // Incentivize keeping larger tiles in the top-left corner
-//   // let topLeftTile = grid.cellContent({ x: 0, y: 0 });
-//   // // if (topLeftTile && topLeftTile.value < highestTileValue) {
-//   // if (topLeftTile && topLeftTile.value < highestTileValue) {
-//   //   console.log(`topLeftTile is undefined  at ${topLeftTile}`);
-//   //   cost += topLeftTile.value * 100000; // Penalty if the largest tile is not in the top-left corner
-//   // }
-//   // else{
-//   //   console.error("topLeftTile is undefined at 2222.");
-
-//   // }
-
-//   // // Adjust cost based on empty spaces
-//   // cost -= emptySpaces * 100; // Encouraging flexibility
-
-//   // Apply penalty for identical values
-//   // for (let value in tileCounts) {
-//   //   let count = tileCounts[value];
-//   //   if (count > 2 && value >8) {
-//   //     let penalty = parseInt(value) * count * 100; // Example penalty based on value and count
-//   //     cost += penalty;
-//   //   }
-//   // }
-
-//   return cost;
-// };
-
-GameManager.prototype.isMovePossible = function (direction) {
-// function isMovePossible(grid, direction) {
-  let clonedGrid = this.cloneGrid(this.grid);
-  this.moveDemo(clonedGrid,direction);
-  return !this.isGridsEqual(this.grid, clonedGrid);
-}
-
-
 
 GameManager.prototype.cloneGrid = function (grid) {
   if (!grid) {
-    console.error("Grid is undefined at 2222.");
-    return;
+    console.error("Grid is undefined");
+    return null;
   }
 
-  // Create a new grid instance with the same size as the original grid
   let newGrid = new Grid(grid.size); 
 
-  // Clone the grid content
   for (let x = 0; x < grid.size; x++) {
     for (let y = 0; y < grid.size; y++) {
       let tile = grid.cellContent({ x: x, y: y });
       if (tile) {
-        // Make sure to insert the tile correctly in the new grid
-        // console.log(`Cloning tile at (${x}, ${y}) with value ${tile.value}`);
-
         newGrid.insertTile(new Tile({ x: x, y: y }, tile.value));
       }
     }
   }
   
   return newGrid;
-}
-// Function to compare two grids
+};
+
 GameManager.prototype.isGridsEqual = function (grid1, grid2) {
-// function isGridsEqual(grid1, grid2) {
+  if (!grid1 || !grid2) return false;
+  
   for (let x = 0; x < grid1.size; x++) {
     for (let y = 0; y < grid1.size; y++) {
       let tile1 = grid1.cellContent({ x: x, y: y });
@@ -749,4 +1088,111 @@ GameManager.prototype.isGridsEqual = function (grid1, grid2) {
     }
   }
   return true;
-}
+};
+
+// ============================================================================
+// NEW IMPROVEMENTS FOR OPTIMAL PLAY
+// ============================================================================
+
+// IDENTIFY GAME PHASE (Early/Mid/Late)
+GameManager.prototype.getGamePhase = function(maxTile, emptyCells) {
+  if (maxTile < 256) return 'early';
+  if (maxTile < 1024) return 'mid';
+  return 'late';
+};
+
+// CALCULATE BOARD COMPLEXITY
+GameManager.prototype.calculateBoardComplexity = function(grid) {
+  let complexity = 0;
+  let tileCount = 0;
+  let uniqueValues = new Set();
+  
+  for (let x = 0; x < grid.size; x++) {
+    for (let y = 0; y < grid.size; y++) {
+      let tile = grid.cellContent({x: x, y: y});
+      if (tile) {
+        tileCount++;
+        uniqueValues.add(tile.value);
+      }
+    }
+  }
+  
+  // Higher complexity = more tiles and more variety
+  complexity = (tileCount / (grid.size * grid.size)) * Math.log2(uniqueValues.size + 1);
+  return complexity;
+};
+
+// EVALUATE EDGE AND CORNER PLACEMENT (NEW)
+GameManager.prototype.evaluateEdgeCornerPlacement = function(grid, maxTile) {
+  let score = 0;
+  
+  // Define corners and edges
+  const corners = [{x: 0, y: 0}, {x: 3, y: 0}, {x: 0, y: 3}, {x: 3, y: 3}];
+  const edges = [
+    {x: 1, y: 0}, {x: 2, y: 0}, // Top edge
+    {x: 3, y: 1}, {x: 3, y: 2}, // Right edge
+    {x: 2, y: 3}, {x: 1, y: 3}, // Bottom edge
+    {x: 0, y: 2}, {x: 0, y: 1}  // Left edge
+  ];
+  
+  // STRONG bonus for large tiles in corners
+  for (let corner of corners) {
+    let tile = grid.cellContent(corner);
+    if (tile && tile.value >= 256) {
+      score += tile.value * 5; // Bonus for corner placement
+      if (corner.x === 0 && corner.y === 0) {
+        score += tile.value * 10; // Extra bonus for top-left corner
+      }
+    }
+  }
+  
+  // MODERATE bonus for large tiles on edges
+  for (let edge of edges) {
+    let tile = grid.cellContent(edge);
+    if (tile && tile.value >= 256) {
+      score += tile.value * 2;
+    }
+  }
+  
+  // PENALTY for large tiles in the middle (not on edges/corners)
+  for (let x = 1; x < 3; x++) {
+    for (let y = 1; y < 3; y++) {
+      let tile = grid.cellContent({x: x, y: y});
+      if (tile && tile.value >= 256) {
+        score -= tile.value * 3; // Penalty for mid-board positioning
+      }
+    }
+  }
+  
+  return score;
+};
+
+// PREDICT FUTURE MERGES (NEW IMPROVEMENT)
+GameManager.prototype.predictFutureMerges = function(grid) {
+  let score = 0;
+  
+  // Look for adjacent tiles that can merge
+  for (let x = 0; x < grid.size; x++) {
+    for (let y = 0; y < grid.size; y++) {
+      let tile = grid.cellContent({x: x, y: y});
+      if (!tile) continue;
+      
+      // Check all 4 directions for merge potential
+      const directions = [{x: 1, y: 0}, {x: 0, y: 1}, {x: -1, y: 0}, {x: 0, y: -1}];
+      
+      for (let dir of directions) {
+        let adjPos = {x: x + dir.x, y: y + dir.y};
+        if (grid.withinBounds(adjPos)) {
+          let adjTile = grid.cellContent(adjPos);
+          if (adjTile && adjTile.value === tile.value) {
+            // Mergeable tiles found
+            let mergedValue = tile.value * 2;
+            score += mergedValue * Math.log2(mergedValue); // Reward potential merges
+          }
+        }
+      }
+    }
+  }
+  
+  return score;
+};
